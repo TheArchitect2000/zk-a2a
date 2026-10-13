@@ -806,37 +806,31 @@ Task scoping and epoch scoping, both analyzed in §3.3, both rejected as the def
 | Node | v22.22.3 |
 | snarkjs | 0.7.3 |
 | Proof system | Groth16 over BN254 |
-| Repetitions | 10, after one untimed warm-up proof that is verified before timing begins |
+| Repetitions | 1 development sample after the conformance suite |
 
-The measurement harness is `scripts/bench.mjs` and the raw output is `build/bench.json`. Every number below comes from that file. Proofs are verified before they are timed, so a circuit that silently accepts a bad witness cannot produce a fast-looking result.
+The measurement harness is `scripts/benchmark.mjs`. It verifies the generated proof and prints JSON to standard output. The current number is a development sample, not a statistically useful benchmark; a release paper MUST report repeated warm measurements and raw output.
 
 ### 9.2 Results
 
-| Circuit | Constraints | Public signals | Prove median | Prove mean | Prove min–max | Verify median | Verify mean | Verify min–max | Proof (JSON) | zkey |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `credential` | 5,597 | 4 | 200.2 ms | 206.1 ms | 191.2–270.5 ms | 6.40 ms | 7.65 ms | 5.95–16.26 ms | 722 B | 3.3 MB |
-| `capability` | 4,133 | 3 | 164.2 ms | 164.6 ms | 163.2–167.3 ms | 7.21 ms | 6.75 ms | 5.66–7.56 ms | 719 B | 2.6 MB |
-| `policy` | 7,792 | 2 | 240.5 ms | 247.2 ms | 236.9–284.9 ms | 6.00 ms | 6.66 ms | 5.53–9.94 ms | 722 B | 4.6 MB |
+| Circuit | Constraints | Public signals | Prove | Verify | Proof (JSON) | zkey |
+|---|---|---|---|---|---|---|
+| `credential-v2` | 5,837 | 6 | 428.45 ms | 7.18 ms | 726 B | 3.3 MB |
 
-Only the `credential` circuit is in scope for this profile; the other two are measured in the same run and are listed because they establish that verification cost is roughly flat across circuit sizes in this range while proving cost tracks constraint count.
-
-The `credential` circuit as measured is `CredentialAttestation(20, 64)`: depth 20 (capacity 1,048,576 leaves), `maxSkills` 64, public signal vector `(nullifier, issuerRoot, skillIndex, sessionNonce)` — three public inputs and one public output, four signals.
+The measured circuit is `CredentialV2(20, 64)`: depth 20 (capacity 1,048,576 leaves), `maxSkills` 64, and public signal vector `(nullifier, requestTag, issuerRoot, skillIndex, sessionScope, requestBinding)` — four public inputs and two public outputs.
 
 ### 9.3 Three caveats that matter more than the numbers
 
-**The 128-byte figure is the compressed proof, and the implementation does not emit it.** 128 bytes is the compressed Groth16 representation over BN254: `A` as a compressed G1 point (32 bytes), `B` as a compressed G2 point (64 bytes), `C` as a compressed G1 point (32 bytes). What the reference implementation actually puts on the wire is the toolchain's JSON proof object, measured at **722 bytes** — about **5.6×** the compressed form. Both numbers are true and they measure different things. Any citation of "128-byte proofs" is a claim about the encoding the specification requires, not about what this code currently produces. The specification's byte-indistinguishability requirement is at SHOULD rather than MUST for precisely this reason, and the gap closes when the flag-bit and byte-order convention is pinned and byte-level test vectors are published.
+**The 128-byte figure is the compressed proof, and the implementation does not emit it.** 128 bytes is the compressed Groth16 representation over BN254: `A` as a compressed G1 point (32 bytes), `B` as a compressed G2 point (64 bytes), `C` as a compressed G1 point (32 bytes). What the reference implementation actually emits is the toolchain's JSON proof object, measured at **726 bytes**. Both numbers are true and measure different encodings. Any citation of "128-byte proofs" is a claim about a future pinned compressed encoding, not this code.
 
 At 128 bytes the size question is immaterial anyway. Carrying the proof in a `data` `Part` costs roughly a third in size for binary fields, since `google.protobuf.Value` has no bytes type, and buys identical wire semantics on the JSON and gRPC bindings.
 
 **These are in-process library calls, not process invocations.** Both `prove` and `verify` are timed around direct `snarkjs.groth16` calls inside a single Node process, after the zkey and wasm are already resolved from disk. A measurement taken by shelling out to the snarkjs CLI once per proof measures something else: Node startup plus loading a 3.3 MB proving key dominates, and the resulting figure is not a measure of the proof computation. Anyone reproducing these numbers should keep the prover warm; anyone reporting a much larger number should check whether they are measuring process startup.
 
-The corresponding caveat on the verify side is smaller but real. The verify maximum of 16.26 ms against a median of 6.40 ms is JIT warm-up and garbage collection, not variance in the pairing computation. The median is the number to use for capacity planning; the maximum is the number to use when setting the wall-clock bound past which a verification attempt is treated as a rejection rather than a hang.
-
-**The measured circuit is not the specified circuit.** The circuit measured here has three public inputs and one binding value (`sessionNonce`), which the specification splits into `sessionScope` and a separately constrained `requestBinding`, giving five signals. That revision changes the constraint system and requires a new ceremony and a new parameter set identifier. It has not been compiled or measured. Two further deltas are quoted in the specification and are arithmetic rather than measurements: roughly 240 constraints for the rate-limit nullifier (from circomlib's published Poseidon(2) cost) and roughly 1,000 constraints for a depth-4 Mode C trust-set level. Both are labelled as estimates and should be measured before either profile is offered.
+The measured circuit matches the six-signal statement in the specification. Its keys come from the checked-in single-contributor development setup and carry no production trust claim.
 
 ### 9.4 What the numbers imply for deployment
 
-**Verification is affordable on the request path.** 6.4 ms median is roughly 150 verifications per second per core. That is the number that decides whether this is deployable server-side, and it is comfortable.
+**Verification appears affordable on the request path.** A 7.18 ms sample is roughly 139 verifications per second per core, but repeated measurements are required before using that figure for capacity planning.
 
 **Every additional public input is free by comparison.** One G1 scalar multiplication, negligible against 6.4 ms. There is no verification-cost argument against binding more values into the statement; the arguments against it are about what the values disclose.
 

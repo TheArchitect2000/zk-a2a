@@ -20,6 +20,28 @@ adopted by the A2A project or the Linux Foundation.
 - Reference implementation: in progress on the
   `implementation/credential-v2` branch
 
+## Reference implementation
+
+The development branch contains the Circom `credential-v2` statement,
+session-scope and request-binding derivations, a verifier-side challenge API, deterministic vectors,
+negative tests, and a benchmark. It requires Node.js 22, Circom 2.1.8, and npm.
+
+```bash
+npm install
+npm run build:circuit
+npm run setup:dev   # development keys only; not a production ceremony
+npm run vectors
+npm run prove
+npm test
+npm run bench
+```
+
+The circuit proves that a hidden credential leaf belongs to the accepted
+Merkle root and that its hidden scope bitmap authorizes the requested skill.
+It emits a context-stable nullifier and a fresh request tag. The verifier
+reconstructs the root, skill index, session scope, and request binding from its
+own trusted state before verifying the proof.
+
 The project composes established cryptographic techniques. Its focus is their
 binding to A2A's extension negotiation, task lifecycle, transport-independent
 object model, revocation state, and privacy constraints.
