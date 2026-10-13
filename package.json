@@ -1,0 +1,21 @@
+{
+  "name": "zk-a2a",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference implementation of the zk-A2A credential-v2 statement",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build:circuit": "bash scripts/build-circuit.sh",
+    "setup:dev": "bash scripts/setup-dev.sh",
+    "vectors": "node scripts/generate-vectors.mjs",
+    "prove": "node scripts/prove.mjs",
+    "test": "node --test --test-force-exit test/*.test.mjs",
+    "bench": "node scripts/benchmark.mjs"
+  },
+  "dependencies": {
+    "circomlib": "2.0.5",
+    "circomlibjs": "0.1.7",
+    "snarkjs": "0.7.3"
+  }
+}

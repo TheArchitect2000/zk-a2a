@@ -37,7 +37,7 @@ For plain unlinkable attribute presentation, BBS is faster than Groth16 (~1–2 
 
 **Scope bitmap** — one bit per skill index, committed in the credential leaf; the statement proves `scopeBitmap[skillIndex] == 1` and discloses only that bit. **Nullifier** — derived in-circuit from the credential secret and a scope value, published as a public output. **Anchor** — verifier configuration committing to a set of credentials or issuer keys.
 
-`#credential` proves inclusion under an anchored root, the requested skill's bit set, and a scope-bound nullifier, hiding the issuer within the anchor; `#scope-disclosure` proves a signature by one of an anchored key list and names the issuer. A challenge solicits one statement. Public signals for `zk-a2a/credential/v2#bn254-poseidon-d20` are `[nullifier, issuerRoot, skillIndex, sessionScope, requestBinding]`: `nullifier` is an output and MAY be taken from the presentation, the other four are verifier-sourced inputs (§6.4).
+`#credential` proves inclusion under an anchored root, the requested skill's bit set, and scope- and request-bound holder tags, hiding the issuer within the anchor; `#scope-disclosure` proves a signature by one of an anchored key list and names the issuer. A challenge solicits one statement. Public signals for `zk-a2a/credential/v2#bn254-poseidon-d20` are `[nullifier, requestTag, issuerRoot, skillIndex, sessionScope, requestBinding]`: the first two are outputs and MAY be taken from the presentation; the other four are verifier-sourced inputs (§6.4).
 
 - Any integer that may exceed 2^53 MUST be a string, since `Struct` and `Value` hold numbers as doubles. Field elements are decimal strings, byte strings unpadded base64url, timestamps RFC 3339.
 - Consumers MUST ignore unrecognized keys rather than reject the object.
@@ -102,7 +102,8 @@ Accepted → `TASK_STATE_WORKING`/`COMPLETED`; retryable rejection → `AUTH_REQ
 ```
 sessionScope = trunc248( SHA-256( "zk-a2a/v1/session-scope" || 0x00
                                   || B(verifier_id) || B(scopeName) || B(scopeValue) ) )
-nullifier    = H(secret, sessionScope)     ; H = circomlib Poseidon(2) over BN254 Fr
+nullifier = H(secret, sessionScope)
+requestTag = H(secret, requestBinding)    ; H = circomlib Poseidon(2) over BN254 Fr
 ```
 
 `scopeName = "context"` with `scopeValue` = UTF-8 bytes of `Task.context_id`; `"task"` with `Task.id` gives the task profile. `verifier_id` sits inside the scope so two providers seeing one `context_id` do not observe equal nullifiers for one holder.
@@ -134,7 +135,7 @@ kind: 1 text · 2 raw · 3 url · 4 data (UTF-8 of JCS(value))
 
 `challengeNonce` is the decoded octets, `requestDigest` a fixed 32 octets with no length prefix, `JCS` RFC 8785 over the proto3 JSON mapping. `p_1…p_n` are the parts in order, excluding the presentation part, since a proof cannot commit to itself; `u_1…u_k` are `Message.extensions` minus this URI, sorted; streaming binds the initiating `Message`.
 
-- `requestBinding` MUST be a declared public input, and the circuit MUST contain at least one constraint on that signal; an unconstrained public input is optimized away and then binds nothing while still appearing in the vector. Implementations SHOULD confirm it in the emitted R1CS.
+- `requestBinding` MUST be a declared public input and MUST determine `requestTag = H(secret, requestBinding)` in-circuit. A different request therefore requires a fresh proof and produces a different request tag. Implementations SHOULD confirm the binding constraints in the emitted R1CS.
 - `verifier_id` MUST be the absolute HTTPS well-known Agent Card URL the prover fetched, normalized per RFC 3986 §6.2.2–6.2.3, or `"jkt:"` plus the RFC 7638 thumbprint of the card-signing key under `verifierIdSource: "cardKeyThumbprint"`. A verifier reachable at several names MUST configure one canonical value; endpoints sharing a `verifier_id` are one linkage domain.
 - `skill_id` MUST be the UTF-8 octets of `AgentSkill.id` as published, and a verifier MUST reject a `skillIndex` outside the bitmap length fixed by the verifying key.
 - Implementations MUST bind the abstract operation identifier (`a2a.message.send`, `a2a.message.stream`), not a binding-specific method name. A custom binding MUST define activation carriage and echo, where the `Message` lives, and an `op` per operation.
@@ -171,7 +172,7 @@ A conforming profile MUST specify: its identifiers; the credential commitment, m
 | Parameters | BN254, Poseidon, depth 20, `maxSkills` 64 | BLS12-381, SHA-256 |
 | Setup | per-circuit trusted | transparent |
 | Proof | 128 bytes | larger, grows with undisclosed messages |
-| Cost | 5,597 R1CS, ~200 ms prove, ~6.4 ms verify | ~1–2 ms prove |
+| Cost | 5,837 R1CS; current sample ~428 ms prove, ~7.2 ms verify | ~1–2 ms prove |
 | Issuer hiding | within an anchor | not in v1 |
 
 - A Groth16 deployment MUST run or adopt a multi-contributor phase-2 ceremony per circuit, publish an independently verifiable transcript, and MUST NOT run production on a single-contributor ceremony, including the reference implementation's. A transcript records contributions, not the destruction of a contributor's randomness, and a party retaining it can mint credentials undetectably.
@@ -212,7 +213,7 @@ Every normative statement above is written so one test exercises it. These five 
 4. **No issuer contact per presentation (§9).** An unknown root and `kid` produce zero outbound issuer requests.
 5. **Holder-generated secret (§9).** The issuer receives only the leaf commitment.
 
-**Open.** This profile has not been deployed, so no candidate-set size has been measured; whether populations reach even 50 holders per `(anchor, skill, epoch)` tuple is unknown, and if they do not, unlinkability-only mode is the honest configuration. The proof is fixed at 128 bytes in the order `A ‖ B ‖ C`, but the flag-bit convention is not pinned and differs between libraries; the reference implementation still ships the toolchain's 722-byte JSON proof object. The 5,597-constraint measurement predates `requestBinding`, so the revised circuit needs recompiling and a new ceremony, and parameter defaults come from analogy, not operational data. Cross-organizational trust sets, an epoch-scoped rate-limit nullifier, IANA registrations, the gRPC activation key, and the governance path — hence the extension URI — are in OPEN-ISSUES.md.
+**Open.** This profile has not been deployed, so no candidate-set size has been measured; whether populations reach even 50 holders per `(anchor, skill, epoch)` tuple is unknown, and if they do not, unlinkability-only mode is the honest configuration. The proof is fixed at 128 bytes in the order `A ‖ B ‖ C`, but the flag-bit convention is not pinned and differs between libraries; the reference implementation currently emits the toolchain's 726-byte JSON proof object. The revised circuit has 5,837 constraints, including the request-binding hash; its checked-in setup script performs a single-contributor development ceremony that MUST NOT be used for production. Parameter defaults come from analogy, not operational data. Cross-organizational trust sets, an epoch-scoped rate-limit nullifier, IANA registrations, the gRPC activation key, and the governance path — hence the extension URI — are in OPEN-ISSUES.md.
 
 ## 14. References
 
